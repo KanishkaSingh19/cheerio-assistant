@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cheerio Assistant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: app top bar, then a chat workspace with a context rail that shows journey stage + what a human agent would receive. */
+/* Deliberately single-theme: purple on white, matching the requested brand look in every viewer theme. */
+:root{
+  --bg:#fbfaff; --surface:#ffffff; --surface-2:#faf8fe; --ink:#3b2f4a; --muted:#6b6276; --line:#e9e4f2;
+  --accent:#5b3ba3; --accent-ink:#ffffff; --accent-soft:#f2edfb; --accent-line:#d8ccf2;
+  --accent-deep:#4a2f8c; --accent-light:#9d82dd; --mist-lav:#e6dcf7; --mist-peach:#fbe9dd;
+  --grad:linear-gradient(100deg,var(--accent-deep) 0%,var(--accent) 45%,var(--accent-light) 100%);
+  --warn:#b2541c; --warn-soft:#fdf0e7; --warn-line:#f2d2bd;
+  --user:#5b3ba3; --user-ink:#ffffff;
+  --display:"Figtree", "Segoe UI", system-ui, sans-serif;
+  --body:"Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --shadow:0 1px 2px rgba(60,30,130,.06), 0 10px 28px rgba(60,30,130,.08);
+  color-scheme:light;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(900px 500px at 100% 0%,var(--mist-lav),transparent 70%),radial-gradient(700px 500px at 0% 100%,var(--mist-peach),transparent 70%),var(--bg);background-attachment:fixed;min-height:100%;color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));padding-block:16px 32px}
+/* Fluted-glass backdrop: vertical ribbed columns + film grain, echoing the brand homepage */
+body::before,body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0}
+body::before{
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,.70) 0px, rgba(255,255,255,.08) 22px,
+      rgba(91,59,163,.10) 52px, rgba(91,59,163,.03) 60px, rgba(255,255,255,.70) 72px),
+    linear-gradient(90deg, rgba(157,130,221,0) 0%, rgba(157,130,221,.10) 45%, rgba(120,92,200,.42) 100%);
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.75) 45%,rgba(0,0,0,.25) 100%);
+          mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.75) 45%,rgba(0,0,0,.25) 100%);
+}
+body::after{
+  opacity:.22;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .5  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--grad);color:var(--accent-ink);display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:18px}
+.brand h1{font-family:var(--display);font-weight:700;font-size:21px;margin:0;letter-spacing:-.015em}
+.brand p{margin:0;color:var(--muted);font-size:13px}
+.proto{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--warn);background:var(--warn-soft);border:1px solid var(--warn-line);padding:6px 10px;border-radius:999px}
+.proto b{font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:11px}
+
+/* Workspace */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+
+.chat{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:620px;min-width:0}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-radius:13px 13px 0 0;background:var(--grad);color:var(--accent-ink)}
+.chat-head .agent span{color:var(--accent-ink);opacity:.82}
+.chat-head .av{background:var(--surface);color:var(--accent)}
+.chat-head .ghost{border-color:rgba(255,255,255,.45);color:var(--accent-ink)}
+.chat-head .ghost:hover{border-color:var(--accent-ink);color:var(--accent-ink);background:rgba(255,255,255,.12)}
+.agent{display:flex;align-items:center;gap:10px}
+.av{width:30px;height:30px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+.agent b{display:block;font-size:14.5px}
+.agent span{font-size:12.5px;color:var(--muted)}
+.ghost{background:transparent;border:1px solid var(--ink);border-radius:999px;padding:6px 14px;font-size:13px;color:var(--muted)}
+.ghost:hover{color:var(--ink);border-color:var(--muted)}
+
+.log{flex:1;padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;max-height:68vh;min-height:420px}
+.row{display:flex;gap:10px;align-items:flex-start;max-width:100%}
+.row.user{justify-content:flex-end}
+.bubble{background:var(--surface-2);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:10px 14px;max-width:min(560px,100%);min-width:0}
+.bubble p{margin:0}
+.bubble p+p{margin-top:6px}
+.row.user .bubble{background:linear-gradient(110deg,var(--accent-deep),var(--accent));color:var(--user-ink);border-color:transparent;border-radius:14px 4px 14px 14px}
+.stack{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:min(580px,100%)}
+.choices{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--surface);border:1px solid var(--accent-line);color:var(--accent);border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;text-align:left}
+.chip:hover:not(:disabled){background:var(--accent-soft)}
+.choices.list{flex-direction:column;align-items:stretch;gap:8px;width:min(440px,100%)}
+.choices.list .chip{border-radius:10px;padding:11px 14px;border-color:var(--line);color:var(--ink);font-weight:500;background:var(--surface)}
+.choices.list .chip:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft)}
+.choices.list .chip.picked{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.choices.list .chip.neg:not(.picked){color:var(--muted)}
+.choices.start .hero{flex:1 1 100%;display:flex;align-items:center;gap:12px;border-radius:14px;padding:14px 16px;border:0;
+  background:var(--grad);color:var(--accent-ink);box-shadow:0 6px 18px rgba(74,47,140,.25)}
+.choices.start .hero:hover:not(:disabled){background:var(--grad);filter:brightness(1.06)}
+.choices.start .hero b{display:block;font-size:15.5px}
+.choices.start .hero small{display:block;font-size:13px;font-weight:500;opacity:.88}
+.hero-ic{width:32px;height:32px;flex:none;border-radius:50%;background:var(--surface);color:var(--accent);display:grid;place-items:center;font-size:20px;font-weight:700}
+.choices.start .hero.picked{outline:2px solid var(--accent-deep);outline-offset:2px}
+.choices .or{flex:1 1 100%;margin:4px 0 0;font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.chip:disabled{cursor:default;opacity:.45}
+.chip.picked{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);opacity:1}
+.chip.neg{border-color:var(--warn-line);color:var(--warn)}
+.chip.neg:hover:not(:disabled){background:var(--warn-soft)}
+.chip.neg.picked{background:var(--warn);color:var(--surface);border-color:var(--warn)}
+
+.typing{display:inline-flex;gap:4px;padding:14px}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:b 1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,60%,100%{opacity:.25}30%{opacity:1}}
+
+/* Guidance card */
+.card{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+.card-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.card-h b{color:var(--ink);font-size:14px}
+.steps{list-style:none;margin:0;padding:6px 14px 10px;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:26px 1fr;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line)}
+.steps li:last-child{border-bottom:0}
+.steps li::before{content:counter(s);width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:12.5px;display:grid;place-items:center}
+.steps b{display:block;font-size:14.5px}
+.steps span{color:var(--muted);font-size:14px}
+.steps em{font-style:normal;font-weight:600;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:0 5px;font-size:13px}
+.steps .caution{display:block;margin-top:4px;color:var(--warn);font-size:13px}
+.tag{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+
+/* Handoff card */
+.kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;padding:12px 14px;font-size:14px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;min-width:0}
+.card-f{padding:0 14px 14px;display:flex;flex-direction:column;gap:10px}
+.card-f .lbl{font-size:13px;color:var(--muted)}
+.primary{background:var(--grad);color:var(--accent-ink);border:0;border-radius:999px;padding:10px 20px;font-weight:700;font-size:14.5px;align-self:flex-start}
+.primary:disabled{opacity:.45;cursor:default}
+.notice{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;font-size:14px}
+.notice.ok{background:var(--accent-soft);border:1px solid var(--accent-line)}
+.notice.hand{background:var(--warn-soft);border:1px solid var(--warn-line)}
+.notice .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+.notice.ok .ic{background:var(--accent);color:var(--accent-ink)}
+.notice.hand .ic{background:var(--warn);color:var(--surface)}
+.notice p{margin:0}.notice p+p{margin-top:4px}
+.mono{font-variant-numeric:tabular-nums;font-weight:700}
+
+/* Composer */
+.composer{border-top:1px solid var(--line);padding:12px 14px;display:flex;gap:10px;align-items:flex-end}
+.composer textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:14.5px;min-height:44px;max-height:120px}
+.composer textarea:disabled{opacity:.6}
+.composer .primary{align-self:auto;height:44px}
+
+/* Rail */
+.rail{display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel{box-shadow:var(--shadow);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.panel h2{font-family:var(--display);font-weight:700;font-size:15.5px;margin:0 0 12px;letter-spacing:-.005em}
+.panel .sub{margin:-6px 0 12px;color:var(--muted);font-size:13px}
+.track{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.track li{display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start;position:relative;padding-bottom:12px;font-size:14px;color:var(--muted)}
+.track li:last-child{padding-bottom:0}
+.track li::after{content:"";position:absolute;left:9px;top:20px;bottom:0;width:2px;background:var(--line)}
+.track li:last-child::after{display:none}
+.dot{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;font-size:11px;font-weight:700;position:relative;z-index:1}
+.track li.done{color:var(--ink)}
+.track li.done .dot{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.track li.now{color:var(--ink);font-weight:600}
+.track li.now .dot{border-color:var(--accent)}
+.track li.now .dot::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.track li.alt .dot{background:var(--warn);border-color:var(--warn);color:var(--surface)}
+.track li.skip{opacity:.5;text-decoration:line-through}
+.ctx{display:flex;flex-direction:column;gap:8px;font-size:13.5px}
+.ctx .r{display:flex;flex-direction:column;gap:1px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.ctx .r:last-child{border-bottom:0;padding-bottom:0}
+.ctx .k{color:var(--muted);font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+.ctx .empty{color:var(--muted)}
+.demo{display:flex;flex-direction:column;gap:8px}
+.demo button{text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:14px}
+.demo button:hover:not(:disabled){border-color:var(--accent)}
+.demo button:disabled{opacity:.5;cursor:default}
+.demo button b{display:block}
+.demo button span{color:var(--muted);font-size:13px}
+.foot{color:var(--muted);font-size:12.5px;text-align:center}
+
+@media (max-width:520px){.kv{grid-template-columns:1fr}.kv dt{margin-top:4px}.log{max-height:none}}
+@media (prefers-reduced-motion: reduce){.typing i{animation:none;opacity:.6}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">C</div>
+      <div>
+        <h1>Cheerio Assistant</h1>
+        <p>Self-serve help for chatbot and WhatsApp setup</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="chat" aria-label="Support chat">
+      <div class="chat-head">
+        <div class="agent"><div class="av" aria-hidden="true">AI</div><div><b>Cheerio Assistant</b><span>Answers in plain language. A human can join if needed.</span></div></div>
+        <button class="ghost" id="restart" type="button">Start over</button>
+      </div>
+      <div class="log" id="log" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Describe your problem, e.g. my chatbot doesn't reply on WhatsApp"></textarea>
+        <button class="primary" id="send" type="submit">Send</button>
+      </form>
+    </section>
+
+    <aside class="rail">
+      <div class="panel">
+        <h2>Where you are</h2>
+        <ol class="track" id="track"></ol>
+      </div>
+      <div class="panel">
+        <h2>Shared with support if needed</h2>
+        <p class="sub">Collected as you go, so you never repeat yourself to a human.</p>
+        <div class="ctx" id="ctx"></div>
+      </div>
+      <div class="panel">
+        <h2>Demo journeys</h2>
+        <p class="sub">Plays a full example in the chat. You can also click through yourself.</p>
+        <div class="demo">
+          <button type="button" id="demoSetup"><b>First chatbot, set up end to end</b><span>"Which part are you stuck on?" → 3 short steps → working</span></button>
+          <button type="button" id="demoOk"><b>Resolved by the assistant</b><span>Template rejected → fixed with guided steps</span></button>
+          <button type="button" id="demoNo"><b>Handed off to a human</b><span>Chatbot not replying → steps fail → support ticket</span></button>
+        </div>
+      </div>
+    </aside>
+  </div>
+  <p class="foot">Prototype, not connected to Cheerio's systems. Typed messages are sorted by an AI model (Groq); questions, steps and tickets are scripted examples. Menu names and ticket numbers are illustrative.</p>
+</div>
+
+<script>
+const FLOWS = {
+  setup: {
+    label: "Set up my first chatbot",
+    cardTitle: n => `${n} quick steps`,
+    check: "Give it a try. Is that part working now?",
+    yes: "Yes, that sorted it", no: "No, I'm still stuck",
+    keys: ["set up","setup","first","create","build a","new chatbot","new bot","make a","from scratch","get started","how do i start","how to","don't know how","dont know how"],
+    qs(a){
+      const first = { q: "No problem! Which part are you stuck on?", key: "Stuck on",
+        opts: ["Choosing what my chatbot should do", "Configuring its responses", "Testing whether it works", "Something else"] };
+      const next = {
+        "Choosing what my chatbot should do": { q: "Good place to start. What do customers message you about most?", key: "Customers ask about",
+          opts: ["Products or prices", "Booking or ordering", "Order or delivery status"] },
+        "Configuring its responses": { q: "Which part of the responses do you need help with?", key: "Response part",
+          opts: ["Writing the welcome message", "Adding reply buttons", "Asking the customer a question"] },
+        "Testing whether it works": { q: "What happens when you test it?", key: "Test result",
+          opts: ["It doesn't reply at all", "It sends the wrong message", "I don't know how to test it"] }
+      }[a[0]];
+      return next ? [first, next] : [first];
+    },
+    steps(a){
+      const T = {
+        "Products or prices": [
+          {t:"Start from the FAQ template", d:"Go to <em>Chatbot</em> → <em>Create chatbot</em> and pick <em>Welcome &amp; FAQs</em>. The greeting and buttons are already set up."},
+          {t:"Add your top 3 questions", d:"Replace the sample buttons with what customers ask most, such as <em>Prices</em>, <em>Timings</em> and <em>Location</em>, and type an answer for each."},
+          {t:"Publish and test", d:"Click <em>Publish</em>, then send <em>Hi</em> to your business number from another phone."}],
+        "Booking or ordering": [
+          {t:"Start from the Bookings template", d:"Go to <em>Chatbot</em> → <em>Create chatbot</em> and pick <em>Bookings &amp; enquiries</em>. It asks for name, date and what they want."},
+          {t:"Choose who gets new enquiries", d:"In the last step, pick the team member who should be notified when a booking comes in."},
+          {t:"Publish and test", d:"Click <em>Publish</em>, then try a booking yourself from another phone."}],
+        "Order or delivery status": [
+          {t:"Start from the Order status template", d:"Go to <em>Chatbot</em> → <em>Create chatbot</em> and pick <em>Order &amp; delivery status</em>."},
+          {t:"Connect your orders", d:"Upload your order sheet or connect your online store so the bot can look up an order number."},
+          {t:"Publish and test", d:"Click <em>Publish</em>, then send a real order number to your business number."}],
+        "Writing the welcome message": [
+          {t:"Open the first message", d:"In your chatbot, click the <em>Welcome</em> step at the top of the flow."},
+          {t:"Keep it to two short lines", d:"Say who you are and what you can help with, e.g. <em>Hi! Welcome to Sharma Sweets. What would you like to do?</em>"},
+          {t:"Save and preview", d:"Click <em>Save</em>, then <em>Preview</em> to see it the way a customer will."}],
+        "Adding reply buttons": [
+          {t:"Select the message", d:"Click the message the buttons should appear under."},
+          {t:"Add up to 3 buttons", d:"Click <em>Add button</em>. Keep each label under 20 characters, like <em>See prices</em>."},
+          {t:"Connect each button", d:"Drag from each button to the step it should lead to. A button with no connection does nothing."}],
+        "Asking the customer a question": [
+          {t:"Add a Question step", d:"Click <em>+</em> after any message and choose <em>Ask a question</em>."},
+          {t:"Pick the answer type", d:"Choose <em>Text</em>, <em>Number</em> or <em>Date</em> so customers can't type the wrong kind of answer."},
+          {t:"Save the answer", d:"Under <em>Save to</em>, pick a contact field like <em>Name</em> so the answer appears in your contacts."}],
+        "It doesn't reply at all": [
+          {t:"Check it's published", d:"In <em>Chatbot</em>, the status should say <em>Active</em>. If it says <em>Draft</em>, click <em>Publish</em>."},
+          {t:"Let any message start it", d:"In the <em>Start</em> step, choose <em>Any incoming message</em>."},
+          {t:"Test from a different phone", d:"Messages from your own business number are ignored. Use another phone."}],
+        "It sends the wrong message": [
+          {t:"Check only one chatbot is live", d:"If two chatbots start on the same message, the older one may answer. Pause the one you don't need."},
+          {t:"Check button connections", d:"Follow each button's line in the builder and make sure it leads to the right step."},
+          {t:"Publish again and retest", d:"Changes only go live after you click <em>Publish</em>."}],
+        "I don't know how to test it": [
+          {t:"Use Preview first", d:"In the builder, click <em>Preview</em> to chat with your bot on screen. Nothing is sent to customers."},
+          {t:"Then test on WhatsApp", d:"From another phone, send <em>Hi</em> to your business number."},
+          {t:"Check the conversation", d:"Open <em>Inbox</em>. You should see your test chat and the bot's replies."}]
+      };
+      return T[a[1]] || [];
+    }
+  },
+  bot: {
+    label: "Chatbot isn't replying on WhatsApp",
+    keys: ["reply","replying","respond","bot","chatbot","flow","not working","silent","answer","auto"],
+    qs: [
+      { q: "Got it. First, what does your chatbot flow show as its status?", key: "Flow status",
+        opts: ["Active / Published", "Draft or Off", "I'm not sure"] },
+      { q: "Thanks. How do customers usually start the chat?", key: "How chats start",
+        opts: ["They type a word like 'Hi'", "They send any message", "They tap an ad or link"] }
+    ],
+    steps(a){
+      const s = [];
+      if (a[0] !== "Active / Published") s.push({t:"Publish your flow", d:"Go to <em>Chatbot</em> → <em>Flows</em>, open your flow and click <em>Publish</em>. A flow in draft never replies to customers."});
+      else s.push({t:"Check only one flow is live", d:"In <em>Chatbot</em> → <em>Flows</em>, make sure no other active flow uses the same start trigger. Two flows on one trigger can block each other."});
+      if (a[1].startsWith("They type")) s.push({t:"Add every greeting as a start word", d:"Open the flow's <em>Start</em> step and add the words customers really type: <em>hi</em>, <em>hello</em>, <em>hey</em>. Matching is exact, so add each one."});
+      else if (a[1].startsWith("They send any")) s.push({t:"Set the start trigger to any message", d:"In the flow's <em>Start</em> step, choose <em>Any incoming message</em> so the bot answers whatever a new customer sends first."});
+      else s.push({t:"Match your ad's pre-filled message", d:"Ads and links send a pre-written message. Copy that exact text from your ad and add it as a start word in the flow."});
+      s.push({t:"Send yourself a test", d:"From a different phone, send that first message to your business number. A reply should arrive within a few seconds."});
+      return s;
+    }
+  },
+  template: {
+    label: "Message template rejected or stuck",
+    keys: ["template","rejected","reject","approval","approve","pending","review","meta","broadcast","campaign"],
+    qs: [
+      { q: "Understood. What status does the template show right now?", key: "Template status",
+        opts: ["Rejected", "In review for over a day", "Approved, but messages don't send"] },
+      { q: "Which category did you choose when you created it?", key: "Category",
+        opts: ["Marketing", "Utility", "I'm not sure"] }
+    ],
+    steps(a){
+      const s = [];
+      if (a[0] === "Rejected") {
+        s.push({t:"Read the rejection reason", d:"Open <em>Templates</em> and click the rejected template. The reason from Meta is shown at the top."});
+        s.push({t:"Fix the two most common causes", d:"Don't start or end the message with a variable like <em>{{1}}</em>, and add a sample value for every variable."});
+      } else if (a[0].startsWith("In review")) {
+        s.push({t:"Allow up to 48 hours", d:"Most templates are reviewed within minutes, but some take up to 2 days. Nothing is broken yet."});
+        s.push({t:"Check for a duplicate name", d:"If you deleted a template with the same name recently, create a new one with a fresh name instead of waiting."});
+      } else {
+        s.push({t:"Check the contact opted in", d:"Templates only reach customers who agreed to hear from you. Confirm the contact has opt-in marked in <em>Contacts</em>."});
+        s.push({t:"Match the template language", d:"If the template is approved in English, send it as English. Sending it under another language fails silently."});
+      }
+      if (a[1] === "Utility") s.push({t:"Keep offers out of Utility templates", d:"Meta rejects Utility templates that mention discounts or sales. Move offer text into a separate Marketing template."});
+      else if (a[1] === "Marketing") s.push({t:"Keep the wording clear and specific", d:"Say who you are and why you're messaging. Vague messages like <em>Click here now!</em> are often rejected."});
+      else s.push({t:"Pick the right category", d:"Use <em>Utility</em> for order updates and reminders. Use <em>Marketing</em> for offers and announcements."});
+      s.push({t:"Resubmit and send a test", d:"Save as a new template, wait for <em>Approved</em>, then send it to your own number first."});
+      return s;
+    }
+  },
+  connect: {
+    label: "Can't connect WhatsApp number",
+    keys: ["number","connect","connecting","api","verify","verification","otp","code","register","onboard","facebook","login","business manager","whatsapp number"],
+    qs: [
+      { q: "Okay. Where did the connection stop?", key: "Stopped at",
+        opts: ["Facebook login screen", "Verification code (OTP)", "\"Number already in use\""] },
+      { q: "Is this number currently used in the WhatsApp or WhatsApp Business app?", key: "Number on WhatsApp app",
+        opts: ["Yes", "No", "I'm not sure"] }
+    ],
+    steps(a){
+      const s = [];
+      if (a[0].startsWith("Facebook")) {
+        s.push({t:"Log in as the business admin", d:"Use the Facebook account that is an <em>Admin</em> of your Meta Business account. Other roles can't finish setup."});
+        s.push({t:"Allow pop-ups for this page", d:"The Facebook window opens as a pop-up. If your browser blocked it, allow pop-ups and try again."});
+      } else if (a[0].startsWith("Verification")) {
+        s.push({t:"Enter the number with country code", d:"Use the full format, for example <em>+91 98765 43210</em>, with no leading zero."});
+        s.push({t:"Try a voice call instead of SMS", d:"If the SMS doesn't arrive in 1 minute, choose <em>Call me</em>. Wait a full minute between attempts."});
+      } else {
+        if (a[1] === "Yes") s.push({t:"Remove the number from the WhatsApp app", d:"On that phone, back up your chats, then go to <em>Settings</em> → <em>Account</em> → <em>Delete account</em>.", caution:"This permanently removes chat history on that phone. Back up first."});
+        else s.push({t:"Check for another provider", d:"The number may still be linked to another WhatsApp API provider. Ask them to release it, and turn off two-step verification."});
+      }
+      s.push({t:"Retry the connection", d:"Go back to <em>Settings</em> → <em>WhatsApp</em> and click <em>Connect number</em> again."});
+      return s;
+    }
+  }
+};
+
+const qsOf = (k, a) => { const q = FLOWS[k].qs; return typeof q === "function" ? q(a || S.answers) : q; };
+const STAGES = ["Tell us what you need","Answer a few questions","Follow the steps","Did it work?","Resolved"];
+const $ = s => document.querySelector(s);
+const log = $("#log"), input = $("#input"), send = $("#send");
+let S, runId = 0;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms,120) : ms));
+
+function reset(){
+  runId++;
+  S = { matchedBy:null, awaitMore:false, flow:null, desc:"", answers:[], stage:0, outcome:null, contact:null, ticket:null };
+  log.innerHTML = "";
+  setDemoButtons(true);
+  render();
+  greet(runId);
+}
+
+function render(){
+  // stage tracker
+  const t = $("#track"); t.innerHTML = "";
+  const labels = [...STAGES];
+  if (S.outcome === "no") labels[4] = "Passed to a human";
+  labels.forEach((l,i)=>{
+    const li = document.createElement("li");
+    let cls = i < S.stage ? "done" : i === S.stage ? "now" : "";
+    if (i === 4 && S.stage >= 4) cls = S.outcome === "no" ? "alt" : "done";
+    if (!S.flow && S.outcome === "no" && i > 0 && i < 4) cls = "skip";
+    li.className = cls;
+    const mark = cls==="done" ? "✓" : cls==="alt" ? "→" : "";
+    li.innerHTML = `<span class="dot">${mark}</span><span>${l}</span>`;
+    t.appendChild(li);
+  });
+  // context
+  const c = $("#ctx");
+  if (!S.desc) { c.innerHTML = `<p class="empty">Nothing yet. Describe your problem to begin.</p>`; return; }
+  let html = `<div class="r"><span class="k">You said</span><span>“${esc(S.desc)}”</span></div>`;
+  if (S.flow) html += `<div class="r"><span class="k">Issue type</span><span>${FLOWS[S.flow].label}</span></div>`;
+  if (S.matchedBy) html += `<div class="r"><span class="k">Understood by</span><span>${S.matchedBy}</span></div>`;
+  S.answers.forEach((a,i)=>{ html += `<div class="r"><span class="k">${qsOf(S.flow)[i].key}</span><span>${esc(a)}</span></div>`; });
+  if (S.flow && S.stage >= 3) html += `<div class="r"><span class="k">Steps given</span><span>${FLOWS[S.flow].steps(S.answers).length} steps</span></div>`;
+  if (S.outcome) html += `<div class="r"><span class="k">Result</span><span>${S.outcome==="yes"?"Resolved (you confirmed it worked)":"Still not working"}</span></div>`;
+  c.innerHTML = html;
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+
+function addRow(who, node){
+  const row = document.createElement("div"); row.className = "row " + who;
+  if (who === "bot") { const av = document.createElement("div"); av.className="av"; av.textContent="AI"; av.setAttribute("aria-hidden","true"); row.appendChild(av); }
+  row.appendChild(node); log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+  return row;
+}
+function bubble(html){ const b = document.createElement("div"); b.className="bubble"; b.innerHTML = html; return b; }
+
+async function botSay(html, id, extra){
+  const typing = addRow("bot", Object.assign(document.createElement("div"), {className:"bubble typing", innerHTML:"<i></i><i></i><i></i>"}));
+  await wait(650);
+  if (id !== runId) return null;
+  typing.remove();
+  const stack = document.createElement("div"); stack.className = "stack";
+  if (html) stack.appendChild(bubble(html));
+  if (extra) stack.appendChild(extra);
+  addRow("bot", stack);
+  return stack;
+}
+function userSay(text){ addRow("user", bubble(`<p>${esc(text)}</p>`)); }
+
+function choices(opts, onPick, negIdx, stacked){
+  const box = document.createElement("div"); box.className = "choices" + (stacked ? " list" : "");
+  opts.forEach((o,i)=>{
+    const b = document.createElement("button"); b.type="button"; b.className = "chip" + (negIdx===i?" neg":""); b.textContent = o;
+    b.addEventListener("click", ()=>{
+      box.querySelectorAll("button").forEach(x=>x.disabled=true);
+      b.classList.add("picked");
+      onPick(o, i);
+    });
+    box.appendChild(b);
+  });
+  return box;
+}
+
+function setComposer(on, ph){
+  input.disabled = !on; send.disabled = !on;
+  input.placeholder = ph || (on ? "Describe your problem, e.g. my chatbot doesn't reply on WhatsApp" : "Choose an option above");
+}
+
+async function greet(id){
+  setComposer(false);
+  const box = document.createElement("div"); box.className = "choices start";
+  const hero = document.createElement("button"); hero.type = "button"; hero.className = "chip hero";
+  hero.innerHTML = `<span class="hero-ic" aria-hidden="true">+</span><span><b>Help me set up my first chatbot</b><small>Step-by-step guidance · No technical skills needed</small></span>`;
+  hero.addEventListener("click", ()=>{ hero.classList.add("picked"); startFlow("Help me set up my first chatbot", "setup"); });
+  box.appendChild(hero);
+  const lbl = document.createElement("p"); lbl.className = "or"; lbl.textContent = "Or get help with a problem";
+  box.appendChild(lbl);
+  const others = Object.keys(FLOWS).filter(k=>k!=="setup");
+  others.forEach(k=>{
+    const b = document.createElement("button"); b.type="button"; b.className="chip"; b.textContent = FLOWS[k].label;
+    b.addEventListener("click", ()=>{ b.classList.add("picked"); startFlow(FLOWS[k].label, k); });
+    box.appendChild(b);
+  });
+  await botSay(`<p>Hi! I'm here to help you get your chatbot up and running. Start a new chatbot below, or tell me what's going wrong in your own words.</p>`, id, box);
+  if (id !== runId) return;
+  setComposer(true);
+  input.focus({preventScroll:true});
+}
+
+function classify(text){
+  const t = text.toLowerCase(); let best=null, score=0;
+  for (const [k,f] of Object.entries(FLOWS)) {
+    const n = f.keys.reduce((acc,w)=> acc + (t.includes(w)?1:0), 0) * (k==="setup" ? 2 : 1);
+    if (n > score || (n > 0 && n === score && best === "setup")) { score=n; best=k; }
+  }
+  return best;
+}
+
+async function askMore(id){
+  S.awaitMore = true;
+  await botSay(`<p>Sure. Tell me in a few words what you're stuck on, and I'll find the right help.</p>`, id);
+  if (id !== runId) return;
+  setComposer(true, "e.g. my WhatsApp number won't connect");
+  input.focus({preventScroll:true});
+}
+
+/* Understanding typed messages: ask the AI function first, fall back to keyword matching. */
+async function understand(text, scripted){
+  if (!scripted){
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(()=>ctrl.abort(), 9000);
+      const r = await fetch("/api/classify", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ text }), signal: ctrl.signal });
+      clearTimeout(timer);
+      if (r.ok){
+        const d = await r.json();
+        if (d && typeof d.flow === "string"){
+          S.matchedBy = "AI (Groq)";
+          return FLOWS[d.flow] ? d.flow : null;
+        }
+      }
+    } catch(e){ /* offline, not deployed, or timed out: use keywords */ }
+  }
+  S.matchedBy = "Keyword matching";
+  return classify(text);
+}
+
+async function thinking(fn){
+  const row = addRow("bot", Object.assign(document.createElement("div"), {className:"bubble typing", innerHTML:"<i></i><i></i><i></i>"}));
+  try { return await fn(); } finally { row.remove(); }
+}
+
+async function onDescribe(text, scripted){
+  if (!text.trim()) return;
+  const id = runId;
+  if (S.awaitMore){
+    S.awaitMore = false; setComposer(false);
+    userSay(text);
+    const key = await thinking(()=>understand(text, scripted));
+    if (id !== runId) return;
+    if (key && key !== "setup"){
+      S.flow = key; S.answers = []; S.desc = text; render();
+      await botSay(`<p>Thanks, that sounds like: <b>${FLOWS[key].label}</b>. A couple of quick questions.</p>`, id);
+      return askQ(0, id);
+    }
+    S.desc = S.desc + " / " + text; S.flow = null; S.answers = []; render();
+    return unknownHandoff(id);
+  }
+  if (S.flow) return;
+  disableOpenChips(); setComposer(false);
+  userSay(text);
+  S.desc = text; render();
+  const key = await thinking(()=>understand(text, scripted));
+  if (id !== runId) return;
+  if (key){ S.flow = key; S.stage = 1; render(); return askQ(0, id); }
+  render();
+  await botSay(`<p>I want to be sure I help with the right thing. Which of these is closest to your problem?</p>`, id,
+    choices([...Object.values(FLOWS).map(f=>f.label), "Something else"], (o,i)=>{
+      const keys = Object.keys(FLOWS);
+      if (i < keys.length) { userSay(o); S.flow = keys[i]; S.stage = 1; render(); askQ(0, runId); }
+      else { userSay(o); unknownHandoff(runId); }
+    }, Object.keys(FLOWS).length));
+}
+
+function disableOpenChips(){ log.querySelectorAll(".choices button:not(:disabled)").forEach(b=>b.disabled=true); }
+
+function startFlow(text, key){
+  disableOpenChips();
+  userSay(text);
+  S.desc = text; S.flow = key; S.stage = 1; render();
+  setComposer(false);
+  askQ(0, runId);
+}
+
+async function askQ(i, id){
+  const q = qsOf(S.flow)[i];
+  const neg = q.opts.indexOf("Something else");
+  await botSay(`<p>${q.q}</p>`, id, choices(q.opts, o=>{
+    userSay(o); S.answers[i] = o; render();
+    if (o === "Something else") return askMore(runId);
+    if (i+1 < qsOf(S.flow).length) askQ(i+1, runId); else giveSteps(runId);
+  }, neg >= 0 ? neg : undefined, true));
+}
+
+async function giveSteps(id){
+  S.stage = 2; render();
+  const F = FLOWS[S.flow];
+  const steps = F.steps(S.answers);
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = `<div class="card-h"><b>${F.cardTitle ? F.cardTitle(steps.length) : steps.length + " steps to fix this"}</b><span class="tag">Guided</span></div>
+    <ol class="steps">${steps.map(s=>`<li><div><b>${s.t}</b><span>${s.d}</span>${s.caution?`<span class="caution">${s.caution}</span>`:""}</div></li>`).join("")}</ol>`;
+  const st = await botSay(`<p>Thanks, that tells me what I need. Here's what to do, in order:</p>`, id, card);
+  if (!st) return;
+  await wait(500);
+  if (id !== runId) return;
+  S.stage = 3; render();
+  await botSay(`<p>${F.check || "Once you've tried these, did it fix the problem?"}</p>`, id,
+    choices([F.yes || "Yes, it's working now", F.no || "No, still not working"], (o,i)=>{ userSay(o); i===0 ? resolved(runId) : handoff(runId); }, 1));
+}
+
+async function resolved(id){
+  S.outcome = "yes"; S.stage = 4; render();
+  const n = document.createElement("div"); n.className = "notice ok";
+  n.innerHTML = `<span class="ic" aria-hidden="true">✓</span><div><p><b>Great, that's resolved.</b></p><p>Thanks for confirming it works. No support request is needed.</p></div>`;
+  await botSay("", id, n);
+  if (id !== runId) return;
+  await botSay("", id, summaryCard("Resolved", "Resolved", "You confirmed it worked"));
+  endState(id);
+}
+
+function summaryCard(title, tag, status){
+  const F = FLOWS[S.flow];
+  const steps = F.steps(S.answers);
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = `<div class="card-h"><b>${title}</b><span class="tag">${tag}</span></div>
+    <dl class="kv">
+      <dt>Problem</dt><dd>${F.label}</dd>
+      <dt>In your words</dt><dd>“${esc(S.desc)}”</dd>
+      <dt>Details</dt><dd>${S.answers.map((a,i)=>`${qsOf(S.flow)[i].key}: ${esc(a)}`).join("<br>")}</dd>
+      <dt>Fixed by</dt><dd>${steps.map(s=>s.t).join("; ")}</dd>
+      <dt>Status</dt><dd>${status}</dd>
+    </dl>`;
+  return card;
+}
+
+function handoffCard(id, reason){
+  const steps = S.flow ? FLOWS[S.flow].steps(S.answers) : [];
+  const card = document.createElement("div"); card.className = "card";
+  const answers = S.flow ? S.answers.map((a,i)=>`${qsOf(S.flow)[i].key}: ${esc(a)}`).join("<br>") : "Not collected";
+  card.innerHTML = `<div class="card-h"><b>Support request</b><span class="tag">Review before sending</span></div>
+    <dl class="kv">
+      <dt>Problem</dt><dd>${S.flow ? FLOWS[S.flow].label : "Not matched to a known issue"}</dd>
+      <dt>In your words</dt><dd>“${esc(S.desc)}”</dd>
+      <dt>Details</dt><dd>${answers}</dd>
+      <dt>Already tried</dt><dd>${steps.length ? steps.map(s=>s.t).join("; ") : "Nothing yet"}</dd>
+      <dt>Status</dt><dd>${reason}</dd>
+    </dl>
+    <div class="card-f"><span class="lbl">How should the support team reach you?</span></div>`;
+  const f = card.querySelector(".card-f");
+  const btn = document.createElement("button"); btn.className = "primary"; btn.type="button"; btn.textContent = "Send to support team"; btn.disabled = true;
+  f.appendChild(choices(["Reply in this chat", "Request a phone callback"], o=>{ S.contact = o; btn.disabled = false; }));
+  f.appendChild(btn);
+  btn.addEventListener("click", ()=>{ btn.disabled = true; btn.textContent = "Sent"; confirmTicket(runId); });
+  return card;
+}
+
+async function handoff(id){
+  S.outcome = "no"; S.stage = 4; render();
+  await botSay(`<p>Sorry, that didn't solve it. This needs a person from the support team.</p><p>I've written up everything we covered, so you won't have to explain it again. Check it below and choose how you'd like to be contacted.</p>`, id, handoffCard(id, "Steps tried, still not working"));
+}
+
+async function unknownHandoff(id){
+  S.outcome = "no"; S.stage = 4; render();
+  await botSay(`<p>This one is outside what I can guide you through yet, so I'll pass it straight to the support team with your description.</p>`, id, handoffCard(id, "Needs a specialist"));
+}
+
+async function confirmTicket(id){
+  const num = "CH-" + (40000 + Math.floor(Math.random()*9000));
+  const n = document.createElement("div"); n.className = "notice hand";
+  const how = S.contact === "Request a phone callback" ? "call you back" : "reply in this chat";
+  n.innerHTML = `<span class="ic" aria-hidden="true">→</span><div><p><b>Simulated request <span class="mono">${num}</span> created.</b></p><p>In the real product, a specialist would ${how} and see the summary above, so you wouldn't need to repeat yourself.</p><p>This is a prototype: no real ticket was created and no one will contact you.</p></div>`;
+  await botSay("", id, n);
+  endState(id);
+}
+
+async function endState(id){
+  if (id !== runId) return;
+  await botSay(`<p>Anything else I can help with?</p>`, id, choices(["Start a new question"], ()=>reset()));
+  setDemoButtons(true);
+}
+
+function setDemoButtons(on){ ["#demoSetup","#demoOk","#demoNo"].forEach(x=>$(x).disabled = !on); }
+
+/* Demo autoplay: clicks the visible choices in order, like a user would */
+async function clickWhenReady(label, id){
+  for (let t=0; t<60; t++){
+    if (id !== runId) return false;
+    const b = [...log.querySelectorAll(".choices button:not(:disabled)")].find(x=>x.textContent===label);
+    if (b){ await wait(500); if (id!==runId) return false; b.click(); return true; }
+    await wait(150);
+  }
+  return false;
+}
+async function demo(kind){
+  reset(); const id = runId; setDemoButtons(false);
+  await wait(900); if (id!==runId) return;
+  if (kind==="setup"){
+    for (let t=0; t<40 && id===runId; t++){ const h = log.querySelector(".hero:not(:disabled)"); if (h){ await wait(600); if (id!==runId) return; h.click(); break; } await wait(150); }
+    for (const p of ["Choosing what my chatbot should do","Products or prices","Yes, that sorted it"]){ const ok = await clickWhenReady(p, id); if (!ok) return; await wait(p==="Products or prices" ? 1600 : 300); }
+    return;
+  }
+  const text = kind==="ok" ? "My WhatsApp template got rejected and I don't know why" : "I built a chatbot but it doesn't reply to customers on WhatsApp";
+  input.value = text; await wait(500); if (id!==runId) return;
+  input.value = ""; onDescribe(text, true);
+  const path = kind==="ok"
+    ? ["Rejected","Utility","Yes, it's working now"]
+    : ["Active / Published","They type a word like 'Hi'","No, still not working","Reply in this chat"];
+  for (const p of path){ const ok = await clickWhenReady(p, id); if (!ok) return; await wait(kind==="ok" && p==="Utility" ? 1400 : 300); }
+  if (kind==="no"){
+    await wait(500); if (id!==runId) return;
+    const send = log.querySelector("button.primary:not(:disabled)");
+    if (send) send.click();
+  }
+}
+
+$("#composer").addEventListener("submit", e=>{ e.preventDefault(); const v = input.value; input.value=""; onDescribe(v); });
+input.addEventListener("keydown", e=>{ if (e.key==="Enter" && !e.shiftKey){ e.preventDefault(); $("#composer").requestSubmit(); }});
+$("#restart").addEventListener("click", reset);
+$("#demoOk").addEventListener("click", ()=>demo("ok"));
+$("#demoSetup").addEventListener("click", ()=>demo("setup"));
+$("#demoNo").addEventListener("click", ()=>demo("no"));
+reset();
+</script>
+</body>
+</html>
