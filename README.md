@@ -7,7 +7,7 @@ Clickable prototype of an AI setup assistant. When someone **types** a problem, 
 | File | What it does |
 |---|---|
 | `index.html` | The whole prototype page |
-| `netlify/functions/classify.mjs` | Server function at `/api/classify`. Calls Groq with your secret key and returns one label: `setup`, `bot`, `template`, `connect` or `unknown` |
+| `netlify/functions/classify.mjs` | Server function at `/api/classify`. Calls Groq with your secret key and returns one label: `setup`, `bot`, `template`, `connect`, `human`, `sensitive` or `unknown` |
 | `netlify.toml` | Tells Netlify where the page and function are |
 
 Your Groq key is only ever stored in Netlify's settings. It is never in the page, so visitors can't see it.
@@ -33,7 +33,7 @@ Your Groq key is only ever stored in Netlify's settings. It is never in the page
 2. Key: `GROQ_API_KEY`  Value: your key from step 1 → **Create variable**.
 3. Go to **Deploys** → **Trigger deploy** → **Deploy project** (the key only takes effect on a new deploy).
 
-Optional: add `GROQ_MODEL` to use a different Groq model (default `llama-3.1-8b-instant`).
+Optional: add `GROQ_MODEL` to use a different Groq model (default `openai/gpt-oss-20b`).
 
 ## Check the AI is working
 1. Open your Netlify site link.
@@ -41,7 +41,9 @@ Optional: add `GROQ_MODEL` to use a different Groq model (default `llama-3.1-8b-
 3. In the side panel, **Understood by** should say **AI (Groq)**.
    - If it says **Keyword matching**, the AI call failed. Check the variable name is exactly `GROQ_API_KEY`, then trigger a new deploy. Netlify → **Logs** → **Functions** → `classify` shows the error.
 
-Good test messages: `how do I start a chatbot`, `my bot ghosts customers`, `Meta said no to my message`, `I want a refund` (should go to human handoff).
+Good test messages: `how do I start a chatbot`, `my bot ghosts customers`, `Meta said no to my message`.
+
+These always go straight to a person, with no troubleshooting first: asking for a person (`just connect me to a real person`) and billing or account issues (`I was charged twice`, `I want a refund`). A keyword rule catches common phrasings before the AI is called, so this works even when the AI is down; the AI catches the rest. **Understood by** shows **Rule (always goes to a person)** when the rule matched.
 
 ## Notes for reviewers
 - This is a prototype. It is not connected to Cheerio's systems and creates no real tickets.

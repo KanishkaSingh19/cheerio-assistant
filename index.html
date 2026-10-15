@@ -56,7 +56,9 @@ button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outl
 
 /* Workspace */
 .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
-@media (max-width:860px){.grid{grid-template-columns:1fr}}
+@media (max-width:860px){.grid{grid-template-columns:1fr}
+  /* Room to scroll past Netlify's floating badge, which otherwise covers the last button */
+  body{padding-bottom:80px}}
 
 .chat{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:620px;min-width:0}
 .chat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-radius:13px 13px 0 0;background:var(--grad);color:var(--accent-ink)}
@@ -366,6 +368,24 @@ const FLOWS = {
   }
 };
 
+/* Cases that always go straight to a person, with no troubleshooting first.
+   Keyword rules run before the AI so these never depend on the model getting it right. */
+const DIRECT = {
+  human: {
+    label: "Asked to speak to a person",
+    status: "Asked for a person",
+    msg: "<p>Of course. I'll pass you to the support team now.</p><p>Check the summary below so they have the context, and choose how you'd like to be contacted.</p>",
+    keys: ["human","real person","talk to a person","speak to a person","talk to someone","speak to someone","connect me to","live agent","support agent","real agent","customer care","executive","insaan","kisi se baat"]
+  },
+  sensitive: {
+    label: "Billing, payment or account issue",
+    status: "Needs a specialist (billing or account)",
+    msg: "<p>Billing and account issues need a person from the support team, so I'll pass this straight to them.</p><p>Check the summary below and choose how you'd like to be contacted.</p>",
+    keys: ["refund","charged","overcharged","double charge","billing","invoice","my bill","payment failed","payment deducted","paid twice","subscription","cancel my plan","money back","paise","hacked","password","locked out"]
+  }
+};
+const directMatch = text => { const t = text.toLowerCase(); return Object.keys(DIRECT).find(k => DIRECT[k].keys.some(w => t.includes(w))) || null; };
+
 const qsOf = (k, a) => { const q = FLOWS[k].qs; return typeof q === "function" ? q(a || S.answers) : q; };
 const STAGES = ["Tell us what you need","Answer a few questions","Follow the steps","Did it work?","Resolved"];
 const $ = s => document.querySelector(s);
@@ -376,7 +396,7 @@ const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms,120) : ms
 
 function reset(){
   runId++;
-  S = { matchedBy:null, awaitMore:false, flow:null, desc:"", answers:[], stage:0, outcome:null, contact:null, ticket:null };
+  S = { matchedBy:null, awaitMore:false, flow:null, direct:null, desc:"", answers:[], stage:0, outcome:null, contact:null, ticket:null };
   log.innerHTML = "";
   setDemoButtons(true);
   render();
@@ -402,11 +422,13 @@ function render(){
   const c = $("#ctx");
   if (!S.desc) { c.innerHTML = `<p class="empty">Nothing yet. Describe your problem to begin.</p>`; return; }
   let html = `<div class="r"><span class="k">You said</span><span>“${esc(S.desc)}”</span></div>`;
-  if (S.flow) html += `<div class="r"><span class="k">Issue type</span><span>${FLOWS[S.flow].label}</span></div>`;
+  if (S.flow || S.direct) html += `<div class="r"><span class="k">Issue type</span><span>${S.flow ? FLOWS[S.flow].label : DIRECT[S.direct].label}</span></div>`;
   if (S.matchedBy) html += `<div class="r"><span class="k">Understood by</span><span>${S.matchedBy}</span></div>`;
   S.answers.forEach((a,i)=>{ html += `<div class="r"><span class="k">${qsOf(S.flow)[i].key}</span><span>${esc(a)}</span></div>`; });
   if (S.flow && S.stage >= 3) html += `<div class="r"><span class="k">Steps given</span><span>${FLOWS[S.flow].steps(S.answers).length} steps</span></div>`;
-  if (S.outcome) html += `<div class="r"><span class="k">Result</span><span>${S.outcome==="yes"?"Resolved (you confirmed it worked)":"Still not working"}</span></div>`;
+  // A handoff with no flow means no steps were tried, so "still not working" would be wrong.
+  const result = S.outcome==="yes" ? "Resolved (you confirmed it worked)" : S.flow ? "Still not working after the steps" : "Passed to a person, no steps tried";
+  if (S.outcome) html += `<div class="r"><span class="k">Result</span><span>${result}</span></div>`;
   c.innerHTML = html;
 }
 
@@ -493,6 +515,8 @@ async function askMore(id){
 
 /* Understanding typed messages: ask the AI function first, fall back to keyword matching. */
 async function understand(text, scripted){
+  const rule = directMatch(text);
+  if (rule){ S.matchedBy = "Rule (always goes to a person)"; return rule; }
   if (!scripted){
     try {
       const ctrl = new AbortController(); const timer = setTimeout(()=>ctrl.abort(), 9000);
@@ -502,7 +526,7 @@ async function understand(text, scripted){
         const d = await r.json();
         if (d && typeof d.flow === "string"){
           S.matchedBy = "AI (Groq)";
-          return FLOWS[d.flow] ? d.flow : null;
+          return (FLOWS[d.flow] || DIRECT[d.flow]) ? d.flow : null;
         }
       }
     } catch(e){ /* offline, not deployed, or timed out: use keywords */ }
@@ -524,6 +548,7 @@ async function onDescribe(text, scripted){
     userSay(text);
     const key = await thinking(()=>understand(text, scripted));
     if (id !== runId) return;
+    if (DIRECT[key]){ S.desc = S.desc + " / " + text; S.flow = null; S.answers = []; return directHandoff(key, id); }
     if (key && key !== "setup"){
       S.flow = key; S.answers = []; S.desc = text; render();
       await botSay(`<p>Thanks, that sounds like: <b>${FLOWS[key].label}</b>. A couple of quick questions.</p>`, id);
@@ -538,6 +563,7 @@ async function onDescribe(text, scripted){
   S.desc = text; render();
   const key = await thinking(()=>understand(text, scripted));
   if (id !== runId) return;
+  if (DIRECT[key]) return directHandoff(key, id);
   if (key){ S.flow = key; S.stage = 1; render(); return askQ(0, id); }
   render();
   await botSay(`<p>I want to be sure I help with the right thing. Which of these is closest to your problem?</p>`, id,
@@ -615,7 +641,7 @@ function handoffCard(id, reason){
   const answers = S.flow ? S.answers.map((a,i)=>`${qsOf(S.flow)[i].key}: ${esc(a)}`).join("<br>") : "Not collected";
   card.innerHTML = `<div class="card-h"><b>Support request</b><span class="tag">Review before sending</span></div>
     <dl class="kv">
-      <dt>Problem</dt><dd>${S.flow ? FLOWS[S.flow].label : "Not matched to a known issue"}</dd>
+      <dt>Problem</dt><dd>${S.flow ? FLOWS[S.flow].label : S.direct ? DIRECT[S.direct].label : "Not matched to a known issue"}</dd>
       <dt>In your words</dt><dd>“${esc(S.desc)}”</dd>
       <dt>Details</dt><dd>${answers}</dd>
       <dt>Already tried</dt><dd>${steps.length ? steps.map(s=>s.t).join("; ") : "Nothing yet"}</dd>
@@ -638,6 +664,11 @@ async function handoff(id){
 async function unknownHandoff(id){
   S.outcome = "no"; S.stage = 4; render();
   await botSay(`<p>This one is outside what I can guide you through yet, so I'll pass it straight to the support team with your description.</p>`, id, handoffCard(id, "Needs a specialist"));
+}
+
+async function directHandoff(kind, id){
+  S.direct = kind; S.outcome = "no"; S.stage = 4; render();
+  await botSay(DIRECT[kind].msg, id, handoffCard(id, DIRECT[kind].status));
 }
 
 async function confirmTicket(id){

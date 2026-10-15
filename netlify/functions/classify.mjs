@@ -1,7 +1,7 @@
 // Sorts a user's typed message into one of the assistant's scripted support paths.
 // The Groq API key stays here on the server (set GROQ_API_KEY in Netlify), never in the page.
 
-const FLOWS = ["setup", "bot", "template", "connect", "unknown"];
+const FLOWS = ["setup", "bot", "template", "connect", "human", "sensitive", "unknown"];
 const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
 const SYSTEM_PROMPT = `You route messages for a WhatsApp chatbot setup assistant used by non-technical business owners.
@@ -10,7 +10,10 @@ Choose exactly one label:
 - bot: an existing chatbot doesn't reply, stopped working, or replies wrongly
 - template: a WhatsApp message template is rejected, stuck in review, or approved but not sending
 - connect: trouble connecting or verifying a WhatsApp number (OTP, Facebook login, number already in use)
-- unknown: anything else, such as billing, refunds, pricing, account access, unrelated or unclear messages
+- human: asks to talk to a person, a support agent or the support team instead of the assistant
+- sensitive: billing, charges, refunds, invoices, subscription changes, account access, passwords or security
+- unknown: anything else, such as pricing questions, unrelated or unclear messages
+If a message asks for a person, choose human even if it also describes a problem.
 Never answer the user's question. Reply with only this JSON: {"flow": "<label>"}`;
 
 const json = (body, status = 200) =>
